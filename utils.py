@@ -28,7 +28,7 @@ def display_data(data, labels, protected, colors = ['orange', 'blue'], legend = 
     if legend:
         plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-def display_result(min_perf, maj_perf, tot_perf):
+def display_result(min_perf, maj_perf, tot_perf, type = 'AUC'):
     std = pd.DataFrame({
         'Minority': [1.96 * np.std(min_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf],
         'Majority': [1.96 * np.std(maj_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf],
@@ -41,15 +41,19 @@ def display_result(min_perf, maj_perf, tot_perf):
         'Overall': [np.mean(tot_perf[i]) for i in min_perf]
     }, index = [i for i in min_perf]).T.plot.barh(xerr = std.T, color = ['tab:green', 'tab:olive'])
     plt.grid(alpha = 0.3)
-    plt.xlim(0.2, 1.0)
-    plt.axvline(0.5, ls = ':', c = 'k', alpha = 0.5)
-    plt.xlabel('AUC-ROC')
+    
+    if type == 'AUC':
+        plt.xlim(0.2, 1.0)
+        plt.xlabel('AUC-ROC')
+        plt.axvline(0.5, ls = ':', c = 'k', alpha = 0.5)
+    else:
+        plt.xlim(0., 1.0)
+        plt.xlabel('Brier Score')
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-
 
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import KFold
 import pandas as pd
@@ -69,15 +73,18 @@ def cross_validation(data, labels, groups, folds = 5, model = LogisticRegression
 
 
     # Performances computation
-    min_perf, maj_perf, tot_perf, min_rocs = [], [], [], []
+    min_perf, maj_perf, tot_perf, maj_bier, min_bier, tot_bier, min_rocs = [], [], [], [], [], [], []
     for pred in predictions:
         maj_perf.append(roc_auc_score(pred[~pred.Protected].Truth, pred[~pred.Protected].Predictions))
         min_perf.append(roc_auc_score(pred[pred.Protected].Truth, pred[pred.Protected].Predictions))
         tot_perf.append(roc_auc_score(pred.Truth, pred.Predictions))
+        maj_bier.append(brier_score_loss(pred[~pred.Protected].Truth, pred[~pred.Protected].Predictions))
+        min_bier.append(brier_score_loss(pred[pred.Protected].Truth, pred[pred.Protected].Predictions))
+        tot_bier.append(brier_score_loss(pred.Truth, pred.Predictions))
         fpr, tpr, _ = roc_curve(pred.Truth, pred.Predictions)
         min_rocs.append(np.interp(np.linspace(0, 1, 1000), fpr, tpr))
 
-    return min_perf, maj_perf, tot_perf, min_rocs, coefs
+    return min_perf, maj_perf, tot_perf, min_rocs, maj_bier, min_bier, tot_bier, coefs
 
 def impute_data(data, groups, strategy = 'Population'):
     if strategy == 'Population':
