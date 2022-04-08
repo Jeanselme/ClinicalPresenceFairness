@@ -32,21 +32,23 @@ def display_result(min_perf, maj_perf, tot_perf):
     std = pd.DataFrame({
         'Minority': [1.96 * np.std(min_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf],
         'Majority': [1.96 * np.std(maj_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf],
-        'Total': [1.96 * np.std(tot_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf]
+        'Overall': [1.96 * np.std(tot_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf]
     }, index = [i for i in min_perf])
 
     ax = pd.DataFrame({
         'Minority': [np.mean(min_perf[i]) for i in min_perf],
         'Majority': [np.mean(maj_perf[i]) for i in min_perf],
-        'Total': [np.mean(tot_perf[i]) for i in min_perf]
+        'Overall': [np.mean(tot_perf[i]) for i in min_perf]
     }, index = [i for i in min_perf]).T.plot.barh(xerr = std.T, color = ['tab:green', 'tab:olive'])
     plt.grid(alpha = 0.3)
     plt.xlim(0.2, 1.0)
     plt.axvline(0.5, ls = ':', c = 'k', alpha = 0.5)
-    plt.xlabel('ROC')
+    plt.xlabel('AUC-ROC')
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
 
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import KFold
@@ -79,10 +81,150 @@ def cross_validation(data, labels, groups, folds = 5, model = LogisticRegression
 
 def impute_data(data, groups, strategy = 'Population'):
     if strategy == 'Population':
-        return np.nan_to_num(data, nan = np.nanmedian(data[:, 0])) 
+        return IterativeImputer(random_state = 0, max_iter = 50, imputation_order = 'random', initial_strategy = 'median').fit_transform(data)
 
     if strategy == 'Group':
-        fill = data.copy()
-        for g in np.unique(groups):
-            fill[groups == g] = np.nan_to_num(fill[groups == g], nan = np.nanmedian(fill[groups == g][:, 0])) 
-        return fill
+        return IterativeImputer(random_state = 0, max_iter = 50, imputation_order = 'random', initial_strategy = 'median').fit_transform(np.concatenate([data, groups.reshape((-1, 1))], 1))[:, :-1]
+
+from sklearn.model_selection import ParameterSampler, train_test_split
+from sklearn.preprocessing import StandardScaler
+import pickle
+import os
+
+def from_array_to_df(covariates, time, event):
+    data = pd.DataFrame(covariates).copy()
+    data['Time'] = time
+    data['Event'] = event
+    return data
+
+class ToyExperiment():
+
+    def train(self, *args):
+        print("Toy Experiment - Results already saved")
+
+class Experiment():
+
+    def __init__(self, model = 'joint', hyper_grid = None, n_iter = 100, 
+                random_seed = 0, times = [1, 7, 14, 30], normalization = True, path = 'results', save = True):
+        self.model = model
+        self.hyper_grid = list(ParameterSampler(hyper_grid, n_iter = n_iter, random_state = random_seed) if hyper_grid is not None else [{}])
+        self.random_seed = random_seed
+        self.times = times
+        
+        self.iter = 0
+        self.best_nll = np.inf
+        self.best_hyper = None
+        self.best_model = None
+        self.normalization = normalization
+        self.path = path
+        self.tosave = save
+
+    @classmethod
+    def create(cls, model = 'log', hyper_grid = None, n_iter = 100, 
+                random_seed = 0, times = [1, 7, 14, 30], path = 'results', normalization = True, force = False, save = True):
+        print(path)
+        if not(force):
+            if os.path.isfile(path + '.csv'):
+                return ToyExperiment()
+            elif os.path.isfile(path + '.pickle'):
+                print('Loading previous copy')
+                try:
+                    obj = cls.load(path + '.pickle')
+                    obj.times = times
+                    return obj
+                except:
+                    print('ERROR: Reinitalizing object')
+                    os.remove(path + '.pickle')
+                    pass
+                
+        return cls(model, hyper_grid, n_iter, random_seed, times, normalization, path, save)
+
+    @staticmethod
+    def load(path):
+        file = open(path, 'rb')
+        return pickle.load(file)
+
+    @staticmethod
+    def save(obj):
+        with open(obj.path + '.pickle', 'wb') as output:
+            try:
+                pickle.dump(obj, output)
+            except Exception as e:
+                print('Unable to save object')
+                
+    def save_results(self, predictions, used):
+        res = pd.concat([predictions, used], axis = 1)
+        
+        if self.tosave:
+            res.to_csv(open(self.path + '.csv', 'w'))
+
+        return res
+
+    def train(self, covariates, event, training):
+        """
+            Model is selected with train / test split and maximum likelihood
+
+            Args:
+                covariates (Dataframe n * d): Observed covariates
+                event (Dataframe n): Event indicator
+                training (Dataframe n): Indicate which points should be used for training
+
+            Returns:
+                (Dict, Dict): Dict of fitted model and Dict of observed performances
+        """
+        # Split source domain into train, test and dev
+        all_training = training[training].index
+        training_index, test_index = train_test_split(all_training, train_size = 0.9, 
+                                            random_state = self.random_seed)
+        training_index, validation_index = train_test_split(training_index, train_size = 0.9, 
+                                            random_state = self.random_seed)
+        annotated_training = pd.Series("Train", training.index, name = "Use")
+        annotated_training[test_index] = "Internal"
+        annotated_training[~training] = "External"
+
+        train_cov, train_event = covariates.loc[training_index], event.loc[training_index]
+        dev_cov, dev_event = covariates.loc[validation_index], event.loc[validation_index]
+        
+        if self.normalization:
+            self.normalizer = StandardScaler().fit(train_cov)
+            train_cov = pd.DataFrame(self.normalizer.transform(train_cov), index = train_cov.index)
+            dev_cov = pd.DataFrame(self.normalizer.transform(dev_cov), index = dev_cov.index)
+            covariates = pd.DataFrame(self.normalizer.transform(covariates), index = covariates.index)
+
+        # Train on subset one domain
+        ## Grid search best params
+        for i, hyper in enumerate(self.hyper_grid):
+            if i < self.iter:
+                # When object is reloaded - Avoid to recompute same parameters
+                continue
+            model = self._fit(train_cov, train_event, hyper)
+
+            if model:
+                nll = self._nll(model, dev_cov, dev_event)
+                if nll < self.best_nll:
+                    self.best_hyper = hyper
+                    self.best_model = model
+                    self.best_nll = nll
+
+            self.iter += 1
+            Experiment.save(self)
+
+        return self.save_results(self.predict(covariates, training.index), annotated_training)
+
+    def predict(self, covariates, index = None):
+        if self.best_model is None:
+            raise ValueError('Model not trained - Call .fit')
+        else:
+            predictions = pd.DataFrame(self.best_model.predict_proba(covariates), index = index)
+        return predictions
+            
+    def _fit(self, covariates, event, hyperparameter):
+        np.random.seed(self.random_seed)
+        if self.model == "log":
+            model = LogisticRegression(**hyperparameter)
+            return model.fit(covariates, event)
+        else:
+            raise ValueError('Model {} unknown'.format(self.model))
+        
+    def _nll(self, model, covariates, event):
+        return - model.score(covariates, event)
