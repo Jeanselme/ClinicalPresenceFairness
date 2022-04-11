@@ -10,7 +10,7 @@ def display_data(data, labels, protected, colors = ['orange', 'blue'], legend = 
         data_p, label_p = data[protected == p], labels[protected == p]
 
         if distribution:
-            sns.kdeplot(x = data_p[:, 0], y = data_p[:, 1],c = color)
+            sns.kdeplot(x = data_p[:, 0], y = data_p[:, 1], color = color, alpha = 0.75)
         else:
             plt.scatter(data_p[:, 0][~label_p], data_p[:, 1][~label_p], alpha = 0.25, label = name, c = color)
             plt.scatter(data_p[:, 0][label_p], data_p[:, 1][label_p], alpha = 0.25, marker = 'x', c = color)
@@ -19,7 +19,7 @@ def display_data(data, labels, protected, colors = ['orange', 'blue'], legend = 
     plt.scatter([],[], marker = 'x', label = 'Positive', c = 'k')
     plt.scatter([],[], marker = 'o', label = 'Negative', c = 'k')
     plt.axvline(0.5, c = 'orange', linestyle=(0, (5, 5)))
-    plt.axhline(0.5, c = "blue",linestyle=(0, (5, 5)))
+    plt.axhline(0.5, c = "blue", linestyle=(0, (5, 5)))
     plt.xlabel(r'$x_1$')
     plt.ylabel(r'$x_2$')
     plt.xlim(-1, 2)
