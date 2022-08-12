@@ -1,97 +1,77 @@
 import matplotlib.pyplot as plt
+from matplotlib import colors as plt_colors
 import seaborn as sns
 sns.set_theme(style="darkgrid")
 sns.set(font_scale = 1.5)
+sns.set(font_scale = 1.5, rc={"figure.dpi":300, 'savefig.dpi':300})
 
 ### Display functions
 def display_data(data, labels, protected, colors = ['orange', 'blue'], legend = True, distribution = False):
+    """
+        Display density plot of the data.
+    """
     # Iterate through group and display data
-    for p, name, color in zip([0, 1], ['Majority', 'Minority'], colors):
-        data_p, label_p = data[protected == p], labels[protected == p]
+    for name, color in zip(['Majority', 'Minority'], colors):
+        data_p, label_p = data[protected == name], labels[protected == name]
 
         if distribution:
-            sns.kdeplot(x = data_p[:, 0], y = data_p[:, 1], color = color, alpha = 0.75)
+            sns.kdeplot(x = data_p.iloc[:, 0], y = data_p.iloc[:, 1], color = color, alpha = 0.75)
         else:
-            plt.scatter(data_p[:, 0][~label_p], data_p[:, 1][~label_p], alpha = 0.25, label = name, c = color)
-            plt.scatter(data_p[:, 0][label_p], data_p[:, 1][label_p], alpha = 0.25, marker = 'x', c = color)
+            plt.scatter(data_p.iloc[:, 0][~label_p], data_p.iloc[:, 1][~label_p], alpha = 0.25, label = name, c = color)
+            plt.scatter(data_p.iloc[:, 0][label_p], data_p.iloc[:, 1][label_p], alpha = 0.25, marker = 'x', c = color)
 
     # Formatting
     plt.scatter([],[], marker = 'x', label = 'Positive', c = 'k')
     plt.scatter([],[], marker = 'o', label = 'Negative', c = 'k')
     plt.axvline(0.5, c = 'orange', linestyle=(0, (5, 5)))
     plt.axhline(0.5, c = "blue", linestyle=(0, (5, 5)))
-    plt.xlabel(r'$x_1$')
-    plt.ylabel(r'$x_2$')
+    plt.xlabel(r'$x_2$')
+    plt.ylabel(r'$x_1$')
     plt.xlim(-1, 2)
     plt.ylim(-1, 2)
 
     if legend:
         plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-def display_result(min_perf, maj_perf, tot_perf, type = 'AUC'):
-    std = pd.DataFrame({
-        'Minority': [1.96 * np.std(min_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf],
-        'Majority': [1.96 * np.std(maj_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf],
-        'Overall': [1.96 * np.std(tot_perf[i]) / np.sqrt(len(min_perf[i])) for i in min_perf]
-    }, index = [i for i in min_perf])
+def display_result(performance, type = 'AUC', legend = True):
+    """
+    Plot comparison of the different result with normal confidence intervals.
+    """
+    mean, ci = {}, {}
+    for method in performance:
+        mean[method], ci[method] = {}, {}
+        for group in performance[method].columns:
+            meth_group = performance[method][group]
+            meth_group = meth_group[meth_group.index.get_level_values('Metric') == type]
+            mean[method][group] = meth_group.mean()
+            ci[method][group] = 1.96 * meth_group.std() / np.sqrt(len(meth_group))
 
-    ax = pd.DataFrame({
-        'Minority': [np.mean(min_perf[i]) for i in min_perf],
-        'Majority': [np.mean(maj_perf[i]) for i in min_perf],
-        'Overall': [np.mean(tot_perf[i]) for i in min_perf]
-    }, index = [i for i in min_perf]).T.plot.barh(xerr = std.T, color = ['tab:green', 'tab:olive'])
+    mean, ci = pd.DataFrame.from_dict(mean), pd.DataFrame.from_dict(ci)
+    ax = mean.plot.barh(xerr = ci, legend = legend)
+    # Change colors
+    colors = ['tab:blue', 'tab:orange', 'tab:gray', 'tab:blue', 'tab:orange', 'tab:gray']
+    for i, thisbar in enumerate(ax.patches):
+        c = list(plt_colors.to_rgba(colors[i]))
+        c[3] = 0.5 if i < 3 else 1
+        thisbar.set(edgecolor = '#eaeaf2', facecolor = c, linewidth = 1, hatch = '/' if i < 3 else '')
+        
     plt.grid(alpha = 0.3)
     
     if type == 'AUC':
         plt.xlim(0.2, 1.0)
-        plt.xlabel('AUC-ROC')
         plt.axvline(0.5, ls = ':', c = 'k', alpha = 0.5)
     else:
         plt.xlim(0., 1.0)
-        plt.xlabel('Brier Score')
-    plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.xlabel(type)
 
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer
-from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss
+    if legend:
+        ax.legend([ax.patches[i] for i in [5, 2, 4, 1, 3, 0]], ['', '', '', '', 'Group', 'Population'], loc='center left', bbox_to_anchor=(1, 0.5),
+            title = 'Imputation strategies', ncol = 3, handletextpad = 0.5, handlelength = 1.0, columnspacing = -0.5,)
+            
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split
 import pandas as pd
 import numpy as np
-
-### Modelling function
-def cross_validation(data, labels, groups, folds = 5, model = LogisticRegression):
-    predictions, coefs = [], []
-
-    for (train, test) in KFold(folds, shuffle = True, random_state = 0).split(np.arange(len(data))):
-        modelfit = model().fit(data[train], labels[train])
-        predictions.append(pd.DataFrame({
-                                'Predictions': modelfit.predict_proba(data[test])[:, 1],
-                                'Truth': labels[test], 
-                                'Protected': groups[test]}))
-        coefs.append((- modelfit.intercept_[0] / modelfit.coef_[0][1], - modelfit.coef_[0][0] / modelfit.coef_[0][1]))           
-
-
-    # Performances computation
-    min_perf, maj_perf, tot_perf, maj_bier, min_bier, tot_bier, min_rocs = [], [], [], [], [], [], []
-    for pred in predictions:
-        maj_perf.append(roc_auc_score(pred[~pred.Protected].Truth, pred[~pred.Protected].Predictions))
-        min_perf.append(roc_auc_score(pred[pred.Protected].Truth, pred[pred.Protected].Predictions))
-        tot_perf.append(roc_auc_score(pred.Truth, pred.Predictions))
-        maj_bier.append(brier_score_loss(pred[~pred.Protected].Truth, pred[~pred.Protected].Predictions))
-        min_bier.append(brier_score_loss(pred[pred.Protected].Truth, pred[pred.Protected].Predictions))
-        tot_bier.append(brier_score_loss(pred.Truth, pred.Predictions))
-        fpr, tpr, _ = roc_curve(pred.Truth, pred.Predictions)
-        min_rocs.append(np.interp(np.linspace(0, 1, 1000), fpr, tpr))
-
-    return min_perf, maj_perf, tot_perf, min_rocs, maj_bier, min_bier, tot_bier, coefs
-
-def impute_data(data, groups, strategy = 'Population'):
-    if strategy == 'Population':
-        return IterativeImputer(random_state = 0, max_iter = 50, imputation_order = 'random', initial_strategy = 'median').fit_transform(data)
-
-    if strategy == 'Group':
-        return IterativeImputer(random_state = 0, max_iter = 50, imputation_order = 'random', initial_strategy = 'median').fit_transform(np.concatenate([data, groups.reshape((-1, 1))], 1))[:, :-1]
 
 from sklearn.model_selection import ParameterSampler, train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -111,7 +91,7 @@ class ToyExperiment():
 
 class Experiment():
 
-    def __init__(self, model = 'joint', hyper_grid = None, n_iter = 100, 
+    def __init__(self, model = 'joint', hyper_grid = None, n_iter = 100,
                 random_seed = 0, times = [1, 7, 14, 30], normalization = True, path = 'results', save = True):
         self.model = model
         self.hyper_grid = list(ParameterSampler(hyper_grid, n_iter = n_iter, random_state = random_seed) if hyper_grid is not None else [{}])
@@ -127,7 +107,7 @@ class Experiment():
         self.tosave = save
 
     @classmethod
-    def create(cls, model = 'log', hyper_grid = None, n_iter = 100, 
+    def create(cls, model = 'log', hyper_grid = None, n_iter = 100,
                 random_seed = 0, times = [1, 7, 14, 30], path = 'results', normalization = True, force = False, save = True):
         print(path)
         if not(force):
@@ -153,12 +133,13 @@ class Experiment():
 
     @staticmethod
     def save(obj):
-        with open(obj.path + '.pickle', 'wb') as output:
-            try:
-                pickle.dump(obj, output)
-            except Exception as e:
-                print('Unable to save object')
-                
+        if obj.tosave:
+            with open(obj.path + '.pickle', 'wb') as output:
+                try:
+                    pickle.dump(obj, output)
+                except Exception as e:
+                    print('Unable to save object')
+                    
     def save_results(self, predictions, used):
         res = pd.concat([predictions, used], axis = 1)
         
