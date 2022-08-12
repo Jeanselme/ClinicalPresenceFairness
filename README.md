@@ -1,11 +1,11 @@
 # Clinical Presence Fairness
-This repository allows to reproduce results from the paper [Imputation Strategies Under Clinical Presence: Impact on Algorithmic Fairness](). This paper explores the importance of imputation on algorithmic fairness.
+This repository allows to reproduce results from the paper [Imputation Strategies Under Clinical Presence: Impact on Algorithmic Fairness](http://arxiv.org/abs/). This paper explores the importance of imputation on algorithmic fairness.
 
 ## How to reproduce the paper main findings ?
 ### Synthetic
 The folder `synthetic` contains all the functions and experiments for reproducing the simulation experiments. The notebook allows to enforce the clinical presence patterns identified in the paper. The following figure introduces these different scenarios of clinical presence, i.e. the complex interaction between patients and healthcare, that can result in group-specific missingness patterns.
 
-![Model](./images/scenarios.png =x250)
+![Model](./images/scenarios.png)
 
 ### MIMIC
 The folder `mimic` contains three notebooks. First, run `preprocessing.ipynb` to extract the labratory tests and the study population. Then, `experiment.ipynb` to run the different imputation pipelines. Finally, `analysis_group.ipynb` compare the pipeline performances.
