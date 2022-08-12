@@ -18,6 +18,17 @@ from sklearn.model_selection import train_test_split
 
 ### Display functions
 def display_data(data, labels, protected, colors = ['tab:orange', 'tab:blue'], legend = True, distribution = False):
+    """
+        Displays data distribution.
+
+        Args:
+            data (Array n * 2): Two dimensional frame of the coordinates of each points.
+            labels (Array n * 1): Label associated to each point.
+            protected (Array n * 1): Group membership (Contains 'Minority' or 'Majority').
+            colors (list, optional): Colors for each group. Defaults to ['tab:orange', 'tab:blue'].
+            legend (bool, optional): Displays legend. Defaults to True.
+            distribution (bool, optional): Computes kde if true. Defaults to False.
+    """
     # Iterate through group and display data
     for name, color in zip(['Majority', 'Minority'], colors):
         data_p, label_p = data[protected == name], labels[protected == name]
@@ -47,6 +58,22 @@ def display_data(data, labels, protected, colors = ['tab:orange', 'tab:blue'], l
 
 
 def display_result(performance, type = 'AUC', legend = True, colors = ['tab:orange', 'tab:blue', 'tab:gray'], alphas = None):
+    """
+        Computes and displays model's performance and normal confidence bounds.
+
+        Args:
+            performance (Dict: str: pd.DataFrame): Dictionary of metrics (key is method, value is frame 
+                of prediction with columns being the group of interest and line metrics over the experiments
+                This dictionary results from k_experiment function)
+            type (str, optional): Performance to be displayed. Defaults to 'AUC'.
+            legend (bool, optional): Display legend (option for paper). Defaults to True.
+            colors (list of matplotlib colors, optional): Colors for each compared methods. Defaults to ['tab:orange', 'tab:blue', 'tab:gray'].
+            alphas (list of float, optional): Alphas to use for each methods. Defaults to None.
+    """
+    assert len(performance) == len(colors), 'Not enough colors provided'
+    assert (alphas is None) or (len(performance) == len(alphas)), 'Not enough transparency provided (alphas = None for non transparency)'
+
+    # Compute average
     mean, ci = {}, {}
     for method in performance:
         mean[method], ci[method] = {}, {}
@@ -81,8 +108,6 @@ def display_result(performance, type = 'AUC', legend = True, colors = ['tab:oran
         labels = [''] * (len(patches) - len(mean.columns)) + mean.columns.tolist()[::-1]
         ax.legend(patches, labels, loc='center left', bbox_to_anchor=(1, 0.5),
             title = 'Imputation strategies', ncol = ncol, handletextpad = 0.5, handlelength = 1.0, columnspacing = -0.5,)
-
-
 
 
 ### Generating functions
@@ -123,7 +148,15 @@ def generate_data_linear_shift(majority_size, ratio, class_balance = 0.5, seed =
 ### Modelling function
 def evaluate(y_true, groups, y_pred):
     """
-        Computes the different metrics of interest
+        Computes the different metrics of interest.
+
+        Args:
+            y_true (Array n * 2): Array of ground truth labels.
+            groups (Array n): Array of group membership.
+            y_pred (Array n * 2): Array of predicted outcomes.
+
+        Returns:
+            Frame: Dataframe with brier score, auc and fixed FPR and TPR.
     """
     groups_unique = np.unique(groups).tolist() + ["Overall"]
 
@@ -155,9 +188,22 @@ def evaluate(y_true, groups, y_pred):
         })
     return pd.DataFrame.from_dict(performance)
 
-def impute_data(train_index, data, groups, strategy = 'Median', MI = False, add_missing = False, add_group = False, complete_case = False, max_iter = 10):
+def impute_data(train_index, data, groups, strategy = 'Median', add_missing = False, add_group = False, complete_case = False, max_iter = 10):
     """
-        Impute data given the different strategy
+        Imputes data given the different strategy.
+
+        Args:
+            train_index (Array): Index of the training data (used to compute median or train regressor).
+            data (DataFrame): Dataset to impute (with missing data).
+            groups (Array): Group membership of each point.
+            strategy (str, optional): Strategy to use (MICE or Median). Defaults to 'Median'.
+            add_missing (bool, optional): Add missing indicators to the returned dataset. Defaults to False.
+            add_group (bool, optional): Add group to the returned dataset. Defaults to False.
+            complete_case (bool, optional): Remove all individuals with missing data. Defaults to False.
+            max_iter (int, optional): Iterations to use for MICE. Defaults to 10.
+
+        Returns:
+            DataFrame, Array: Imputed data, Index to use for training
     """
     index = data.loc[train_index].dropna().index if complete_case else train_index # For complete case analysis -- keep only index of complete case
     data = data.add_suffix('_data')
@@ -211,7 +257,17 @@ def impute_data(train_index, data, groups, strategy = 'Median', MI = False, add_
 def train_test(data, labels, groups_bin, groups, n_imputation = 1, seed = 42, **args_imputation):  
     """
         Computes the performance on a 80 - 20 % train test split
-        With multiple imputation
+
+        Args:
+            data (DataFrame): Dataset with missing data.
+            labels (DataFrame): Associated label to predict.
+            groups_bin (Array): Binary group membership.
+            groups (Array): Named group membership.
+            n_imputation (int, optional): Number of imputation if > 1, multiple imputation algorithm. Defaults to 1.
+            seed (int, optional): For reproducibility. Defaults to 42.
+
+        Returns:
+            Frame, Array, Array: Performance, coefficients of the logistic regression, mean imputed values
     """
     predictions, coefs, mean_imputed = [], [], []
 
@@ -219,7 +275,7 @@ def train_test(data, labels, groups_bin, groups, n_imputation = 1, seed = 42, **
     np.random.seed(seed)
     for i in range(n_imputation):
         # Impute data
-        imputed, train = impute_data(train, data, groups_bin, MI = n_imputation > 1, **args_imputation)
+        imputed, train = impute_data(train, data, groups_bin, **args_imputation)
         modelfit = LogisticRegression(random_state = i).fit(imputed.loc[train], labels.loc[train])
         predictions.append(modelfit.predict_proba(imputed.loc[test])[:, 1])
         coefs.append(np.array([- modelfit.intercept_[0] / modelfit.coef_[0][1], - modelfit.coef_[0][0] / modelfit.coef_[0][1]]))
@@ -233,10 +289,21 @@ def train_test(data, labels, groups_bin, groups, n_imputation = 1, seed = 42, **
 
 def k_experiment(majority_size, ratio, class_balance, removal, k = 10, n_imputation = 1, **args_imputation):
     """
-        Generates k datasets and compute model performance
+        Generates k datasets and computes model performance
 
         Returns performance over every fold
         Coef and data of the last fold
+
+        Args:
+            majority_size (int): Number of points in the majority class.
+            ratio (float): Ratio in the minority class.
+            class_balance (float): Ratio between positive and negative.
+            removal (function): Function used to remove datapoints.
+            k (int, optional): Number of experiments to run. Defaults to 10.
+            n_imputation (int, optional): Number iteration of the imputaiton to use. Defaults to 1.
+
+        Returns:
+            Dict, tuplet: Performance, LAST logitic and imputation characteristics
     """
     performances = {}
     for i in trange(k):
