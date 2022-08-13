@@ -1,3 +1,11 @@
+from sklearn.model_selection import ParameterSampler, train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+import pandas as pd
+import numpy as np
+import pickle
+import os
+
 import matplotlib.pyplot as plt
 from matplotlib import colors as plt_colors
 import seaborn as sns
@@ -67,17 +75,9 @@ def display_result(performance, type = 'AUC', legend = True):
     if legend:
         ax.legend([ax.patches[i] for i in [5, 2, 4, 1, 3, 0]], ['', '', '', '', 'Group', 'Population'], loc='center left', bbox_to_anchor=(1, 0.5),
             title = 'Imputation strategies', ncol = 3, handletextpad = 0.5, handlelength = 1.0, columnspacing = -0.5,)
-            
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-import pandas as pd
-import numpy as np
 
-from sklearn.model_selection import ParameterSampler, train_test_split
-from sklearn.preprocessing import StandardScaler
-import pickle
-import os
 
+# Code borrowed from https://github.com/Jeanselme/ClinicalPresence
 def from_array_to_df(covariates, time, event):
     data = pd.DataFrame(covariates).copy()
     data['Time'] = time
@@ -90,6 +90,9 @@ class ToyExperiment():
         print("Toy Experiment - Results already saved")
 
 class Experiment():
+    """
+        Object to run and save progress on the MIMIC experiment
+    """
 
     def __init__(self, model = 'joint', hyper_grid = None, n_iter = 100,
                 random_seed = 0, times = [1, 7, 14, 30], normalization = True, path = 'results', save = True):

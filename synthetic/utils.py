@@ -67,10 +67,9 @@ def display_result(performance, type = 'AUC', legend = True, colors = ['tab:oran
                 This dictionary results from k_experiment function)
             type (str, optional): Performance to be displayed. Defaults to 'AUC'.
             legend (bool, optional): Display legend (option for paper). Defaults to True.
-            colors (list of matplotlib colors, optional): Colors for each compared methods. Defaults to ['tab:orange', 'tab:blue', 'tab:gray'].
+            colors (list of matplotlib colors, optional): Colors for each groups. Defaults to ['tab:orange', 'tab:blue', 'tab:gray'].
             alphas (list of float, optional): Alphas to use for each methods. Defaults to None.
     """
-    assert len(performance) == len(colors), 'Not enough colors provided'
     assert (alphas is None) or (len(performance) == len(alphas)), 'Not enough transparency provided (alphas = None for non transparency)'
 
     # Compute average
@@ -78,6 +77,7 @@ def display_result(performance, type = 'AUC', legend = True, colors = ['tab:oran
     for method in performance:
         mean[method], ci[method] = {}, {}
         for group in performance[method].columns:
+            assert len(performance[method].columns) == len(colors), 'Not enough colors provided'
             meth_group = performance[method][group]
             meth_group = meth_group[meth_group.index.get_level_values('Metric') == type]
             mean[method][group] = meth_group.mean()
