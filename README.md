@@ -1,5 +1,5 @@
 # Clinical Presence Fairness
-This repository allows to reproduce results from the paper [Imputation Strategies Under Clinical Presence: Impact on Algorithmic Fairness](http://arxiv.org/abs/). This paper explores the importance of imputation on algorithmic fairness.
+This repository allows to reproduce results from the paper [Imputation Strategies Under Clinical Presence: Impact on Algorithmic Fairness](https://arxiv.org/abs/2208.06648). This paper explores the importance of imputation on algorithmic fairness.
 
 ## How to reproduce the paper main findings ?
 ### Synthetic
@@ -12,7 +12,7 @@ The folder `mimic` contains three notebooks. First, run `preprocessing.ipynb` to
 ## Findings
 - **Insight 1** - Equally-performing imputation strategies at the population level result in different marginalised group performances.  
 - **Insight 2** - No strategy consistently outperforms the others across clinical presence scenarios.  
-- **Insight 3** - Current recommendation of leveraging additional covariates to make MAR assumption more plausible can harm marginalised group's performance.  
+- **Insight 3** - Current recommendation of leveraging additional covariates to make MAR assumption more plausible can harm marginalised group's performance. 
 - **Insight 4** - Real-world data presents group-specific clinical presence patterns.  
 - **Insight 5** - Marginalised groups can benefit or be harmed by equally performing imputation strategies at the population level.  
 - **Insight 6** - Different marginalised groups may be impacted contrarily by the same imputation strategy.
