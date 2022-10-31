@@ -217,15 +217,21 @@ def impute_data(train_index, data, groups, strategy = 'Median', add_missing = Fa
         data = pd.concat([data, groups.rename('Group')], axis = 1)
 
     if 'Group' in strategy:
-        # Add group befoer splitting only for imputation
-        data = pd.concat([data, groups.rename('Group')], axis = 1)
+        if 'Mean' in strategy:
+            data = data.groupby(groups).transform(lambda x: x.fillna(x.mean()))
+        elif 'Median' in strategy:
+            data = data.groupby(groups).transform(lambda x: x.fillna(x.median()))
+        else:
+            # Add group befoer splitting only for imputation
+            data = pd.concat([data, groups.rename('Group')], axis = 1)
+
 
     # Data to use to learn imputation
     train_data = data.loc[train_index]
 
     # MICE Algorithm
     ## 1. Init with median imputation
-    imputed = pd.DataFrame(SimpleImputer(strategy = "median").fit(train_data).transform(data), index = data.index, columns = data.columns)
+    imputed = pd.DataFrame(SimpleImputer(strategy = "mean" if "Mean" in strategy else "median").fit(train_data).transform(data), index = data.index, columns = data.columns)
 
     if 'MICE' in strategy:
         missing = data.isna()

@@ -10,8 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib import colors as plt_colors
 import seaborn as sns
 sns.set_theme(style="darkgrid")
-sns.set(font_scale = 1.5)
-sns.set(font_scale = 1.5, rc={"figure.dpi":300, 'savefig.dpi':300})
+sns.set(font_scale = 2, rc={"figure.dpi":700, 'savefig.dpi':300})
 
 ### Display functions
 def display_data(data, labels, protected, colors = ['orange', 'blue'], legend = True, distribution = False):
