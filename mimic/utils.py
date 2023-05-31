@@ -9,8 +9,9 @@ import os
 import matplotlib.pyplot as plt
 from matplotlib import colors as plt_colors
 import seaborn as sns
-sns.set_theme(style="darkgrid")
-sns.set(font_scale = 2, rc={"figure.dpi":700, 'savefig.dpi':300})
+custom_params = {"axes.spines.right": False, "axes.spines.top": False, "axes.spines.left": False,
+                 "axes.spines.bottom": False, "figure.dpi": 700, 'savefig.dpi': 300}
+sns.set_theme(style = "whitegrid", rc = custom_params, font_scale = 1.75)
 
 ### Display functions
 def display_data(data, labels, protected, colors = ['orange', 'blue'], legend = True, distribution = False):
