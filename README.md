@@ -10,12 +10,10 @@ The folder `synthetic` contains all the functions and experiments for reproducin
 ### MIMIC
 The folder `mimic` contains three notebooks. First, run `preprocessing.ipynb` to extract the labratory tests and the study population. Then, `experiment.ipynb` to run the different imputation pipelines. Finally, `analysis_group.ipynb` compare the pipeline performances.
 ## Findings
-- **Insight 1** - Equally-performing imputation strategies at the population level result in different marginalised group performances.  
-- **Insight 2** - No strategy consistently outperforms the others across clinical presence scenarios.  
-- **Insight 3** - Current recommendation of leveraging additional covariates to make MAR assumption more plausible can harm marginalised group's performance. 
-- **Insight 4** - Real-world data presents group-specific clinical presence patterns.  
-- **Insight 5** - Marginalised groups can benefit or be harmed by equally performing imputation strategies at the population level.  
-- **Insight 6** - Different marginalised groups may be impacted contrarily by the same imputation strategy.
+- **Insight 3.0** - Real-world data presents group-specific clinical missingness. 
+- **Insight 3.1** - Different imputation strategies may have similar prediction performance at the population level while having \textbf{opposite} group performance gaps.  
+- **Insight 3.2** - No imputation strategy consistently outperforms the others across groups. 
+- **Insight 3.3** - Current recommendations for group-specific imputation and use of missingness indicators can increase the performance gap and yield a worse performance for the marginalised groups.  
 
 ## Future directions
 - Quantifying risk.
