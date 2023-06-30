@@ -37,11 +37,11 @@ def display_data(data, labels, protected, colors = ['tab:orange', 'tab:blue'], l
         data_p, label_p = data[protected == name], labels[protected == name]
 
         if distribution:
-            sns.kdeplot(x = data_p.iloc[:, 0][~label_p], y = data_p.iloc[:, 1][~label_p], color = color, alpha = 0.7, linestyles = 'dashed', linewidth = 2, levels = 5)
-            sns.kdeplot(x = data_p.iloc[:, 0][label_p], y = data_p.iloc[:, 1][label_p], color = color, alpha = 0.7, linestyles = 'dotted', linewidth = 2, levels = 5)
+            sns.kdeplot(x = data_p.iloc[:, 1][~label_p], y = data_p.iloc[:, 0][~label_p], color = color, alpha = 0.7, linestyles = 'dashed', linewidth = 2, levels = 5)
+            sns.kdeplot(x = data_p.iloc[:, 1][label_p], y = data_p.iloc[:, 0][label_p], color = color, alpha = 0.7, linestyles = 'dotted', linewidth = 2, levels = 5)
         else:
-            plt.scatter(data_p.iloc[:, 0][~label_p], data_p.iloc[:, 1][~label_p], alpha = 0.25, label = name, c = color)
-            plt.scatter(data_p.iloc[:, 0][label_p], data_p.iloc[:, 1][label_p], alpha = 0.25, marker = 'x', c = color)
+            plt.scatter(data_p.iloc[:, 1][~label_p], data_p.iloc[:, 0][~label_p], alpha = 0.25, label = name, c = color)
+            plt.scatter(data_p.iloc[:, 1][label_p], data_p.iloc[:, 0][label_p], alpha = 0.25, marker = 'x', c = color)
 
     # Formatting
     plt.scatter([],[], label = 'Group', alpha = 0)
@@ -51,8 +51,8 @@ def display_data(data, labels, protected, colors = ['tab:orange', 'tab:blue'], l
     plt.scatter([],[], label = 'Class', alpha = 0)
     plt.plot([],[], ls = 'dotted', label = 'Positive', c = 'k')
     plt.plot([],[], ls = 'dashed', label = 'Negative', c = 'k')
-    plt.xlabel(r'$x_2$')
-    plt.ylabel(r'$x_1$')
+    plt.xlabel(r'$x_1$')
+    plt.ylabel(r'$x_2$')
     plt.xlim(-1, 2)
     plt.ylim(-1, 2)
 
@@ -142,6 +142,40 @@ def generate_data_linear_shift(majority_size, ratio, class_balance = 0.5, seed =
     labels_min = np.concatenate([np.full(len(minority_pos), True), np.full(len(minority_neg), False)])
 
     concatenation = np.concatenate([majority, minority])
+    labels = np.concatenate([labels_maj, labels_min])
+    protected =  np.concatenate([np.full(len(labels_maj), False), np.full(len(labels_min), True)])
+
+    sort = np.arange(len(concatenation))
+    np.random.shuffle(sort)
+    return pd.DataFrame(concatenation[sort]), pd.Series(labels[sort]), pd.Series(protected[sort]), pd.Series(protected[sort]).replace({True: 'Minority', False: 'Majority'})
+
+def generate_data_linear_corr_shift(majority_size, ratio, class_balance = 0.5, seed = 0):
+    """
+        Generate data with a shift in the linear separation for the minority
+        Negative are the same but not positive
+
+        Args:
+            majority_size (int): Number points for majority
+            ratio (float): Ratio for minority (0.1 = 1 in minority for 10 in majority)
+            class_balance (float, optional): Balance between class. Default 0.5.
+    """
+    np.random.seed(seed)
+
+    majority_pos = 0.25 * np.random.randn(int(majority_size * class_balance), 2)
+    majority_neg = 0.25 * np.random.randn(int(majority_size * (1 - class_balance)), 2)
+    majority_pos[:, 0] += 1
+    majority = np.concatenate([majority_pos, majority_neg])
+    labels_maj = np.concatenate([np.full(len(majority_pos), True), np.full(len(majority_neg), False)])
+
+    minority_pos = 0.25 * np.random.randn(int(majority_size * ratio * class_balance), 2)
+    minority_neg = 0.25 * np.random.randn(int(majority_size * ratio * (1 - class_balance)), 2)
+    minority_pos[:, 1] += 1
+    minority = np.concatenate([minority_pos, minority_neg])
+    labels_min = np.concatenate([np.full(len(minority_pos), True), np.full(len(minority_neg), False)])
+
+    concatenation = np.concatenate([majority, minority])
+    concatenation[:, 0] += 0.5 * concatenation[:, 1]
+
     labels = np.concatenate([labels_maj, labels_min])
     protected =  np.concatenate([np.full(len(labels_maj), False), np.full(len(labels_min), True)])
 
@@ -246,14 +280,6 @@ def impute_data(train_index, data, groups, strategy = 'Median', add_missing = Fa
     index = data.loc[train_index].dropna().index if complete_case else train_index # For complete case analysis -- keep only index of complete case
     data = data.add_suffix('_data')
 
-    if add_missing:
-        # Add missing indicator
-        data = pd.concat([data, data.isna().add_suffix('_missing')], axis = 1)
-
-    if add_group:
-        # Add group befoer splitting only for imputation
-        data = pd.concat([data, groups.rename('Group')], axis = 1)
-
     # Data to use to learn imputation
     train_data = data.loc[train_index]
 
@@ -295,6 +321,14 @@ def impute_data(train_index, data, groups, strategy = 'Median', add_missing = Fa
                 # Remove the group columns of imputed data
                 imputed = imputed.iloc[:, :-1]
 
+    if add_missing:
+        # Add missing indicator
+        imputed = pd.concat([imputed, data.isna().add_suffix('_missing').astype(float)], axis = 1)
+
+    if add_group:
+        # Add group befoer splitting only for imputation
+        imputed = pd.concat([imputed, groups.rename('Group').astype(float)], axis = 1)
+
     return imputed, index
 
 def train_test(data, labels, groups_bin, groups, n_imputation = 1, seed = 42, **args_imputation):  
@@ -319,7 +353,7 @@ def train_test(data, labels, groups_bin, groups, n_imputation = 1, seed = 42, **
     for i in range(n_imputation):
         # Impute data
         imputed, train = impute_data(train, data, groups_bin, **args_imputation)
-        modelfit = LogisticRegression(random_state = i).fit(imputed.loc[train], labels.loc[train])
+        modelfit = LogisticRegression(random_state = i, penalty = 'none').fit(imputed.loc[train], labels.loc[train])
         predictions.append(modelfit.predict_proba(imputed.loc[test])[:, 1])
         coefs.append(np.array([- modelfit.intercept_[0] / modelfit.coef_[0][1], - modelfit.coef_[0][0] / modelfit.coef_[0][1]]))
         mean_imputed.append(imputed)
@@ -353,9 +387,14 @@ def k_experiment(majority_size, ratio, class_balance, removal, k = 10, n_imputat
     mean_observed = {"Overall": [], "Minority": [], "Majority": []}
     obs_rate = {"Overall": [], "Minority": [], "Majority": []}
     corr_missingness = {"Overall": [], "Minority": [], "Majority": []}
+    corr_covariates = {"Overall": [], "Minority": [], "Majority": []}
     for i in trange(k):
         data, labels, protected_binarized, protected = generate(majority_size, ratio, class_balance, seed = i)
         data_removed = removal(data, labels, protected, seed = i)
+        corr_covariates["Overall"].append((data_removed).corr().iloc[0, 1])
+        corr_covariates["Minority"].append((data_removed[protected_binarized]).corr().iloc[0, 1])
+        corr_covariates["Majority"].append((data_removed[~protected_binarized]).corr().iloc[0, 1])
+
         performances[i], coefs, imputed = train_test(data_removed, labels, protected_binarized, protected, n_imputation, seed = i, **args_imputation)
 
         error = (data - imputed.Mean.values[:,:2]).loc[:, 0]**2# Select dimension 0 as it is the one where we removed data
@@ -382,6 +421,7 @@ def k_experiment(majority_size, ratio, class_balance, removal, k = 10, n_imputat
         corr_missingness["Minority"].append(corr.loc[protected_binarized].corr().min().values[0])
         corr_missingness["Majority"].append(corr.loc[~protected_binarized].corr().min().values[0])
 
+
     performances = pd.concat(performances, axis = 0)
     performances.index.set_names(['Fold', 'Metric'], inplace = True)
 
@@ -390,4 +430,4 @@ def k_experiment(majority_size, ratio, class_balance, removal, k = 10, n_imputat
     obs_rate = pd.concat({"Mean": pd.DataFrame.from_dict(obs_rate).mean(), "Std": pd.DataFrame.from_dict(obs_rate).std()})
     corr_missingness = pd.concat({"Mean": pd.DataFrame.from_dict(corr_missingness).mean(), "Std": pd.DataFrame.from_dict(corr_missingness).std()})
 
-    return performances, coefs, (delta_reconstruction, mean_observed, obs_rate, corr_missingness), (data, imputed, labels, protected_binarized, protected)
+    return performances, coefs, (delta_reconstruction, mean_observed, obs_rate, corr_missingness, corr_covariates), (data, imputed, labels, protected_binarized, protected)
