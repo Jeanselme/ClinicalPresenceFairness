@@ -9,11 +9,11 @@ from matplotlib import colors as plt_colors
 
 import seaborn as sns
 custom_params = {"axes.spines.right": False, "axes.spines.top": False, "axes.spines.left": False,
-                 "axes.spines.bottom": False, "figure.dpi": 700, 'savefig.dpi': 300}
+                 "axes.spines.bottom": False, "figure.dpi": 300, 'savefig.dpi': 300}
 sns.set_theme(style = "whitegrid", rc = custom_params, font_scale = 1.75)
 
 
-from sklearn.impute import SimpleImputer
+from sklearn.impute import SimpleImputer, KNNImputer
 from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -53,8 +53,8 @@ def display_data(data, labels, protected, colors = ['tab:orange', 'tab:blue'], l
     plt.plot([],[], ls = 'dashed', label = 'Negative', c = 'k')
     plt.xlabel(r'$x_1$')
     plt.ylabel(r'$x_2$')
-    plt.xlim(-1, 2)
-    plt.ylim(-1, 2)
+    # plt.xlim(-1, 2)
+    # plt.ylim(-1, 2)
 
     if legend:
         plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
@@ -62,7 +62,7 @@ def display_data(data, labels, protected, colors = ['tab:orange', 'tab:blue'], l
 def print_pandas_latex(mean, std):
     print(pd.DataFrame.from_dict({m: ["{:.3f} ({:.3f})".format(mean.loc[m].loc[i], std.loc[m].loc[i]) for i in mean.columns] for m in mean.index}, columns = mean.columns, orient = 'index').to_latex())
 
-def display_result(performance, type = 'AUC', legend = True, colors = ['tab:orange', 'tab:blue', 'tab:gray'], alphas = None):
+def display_result(performance, type = 'AUC', legend = True, colors = ['tab:orange', 'tab:blue', 'tab:gray'], alphas = None, plot = False):
     """
         Computes and displays model's performance and normal confidence bounds.
 
@@ -91,6 +91,8 @@ def display_result(performance, type = 'AUC', legend = True, colors = ['tab:oran
 
     mean, std, ci = pd.DataFrame.from_dict(mean), pd.DataFrame.from_dict(std), pd.DataFrame.from_dict(ci)
     print_pandas_latex(mean, std)
+
+    if not plot: return
     ax = mean.plot.barh(xerr = ci, legend = legend, figsize = (7, 7))
     # Change colors
     hatches = ['', 'ooo', 'xx', '//', '||', '***', '++'] * 2
@@ -184,7 +186,7 @@ def generate_data_linear_corr_shift(majority_size, ratio, class_balance = 0.5, s
     return pd.DataFrame(concatenation[sort]), pd.Series(labels[sort]), pd.Series(protected[sort]), pd.Series(protected[sort]).replace({True: 'Minority', False: 'Majority'})
 
 
-def generate_data_same(majority_size, ratio, class_balance = [0.1,0.5], seed = 0):
+def generate_data_same(majority_size, ratio, class_balance = [0.1, 0.5], seed = 0):
     """
         Generate data with similar data distributionbut difference in disease prevalence
 
@@ -215,10 +217,8 @@ def generate_data_same(majority_size, ratio, class_balance = [0.1,0.5], seed = 0
     np.random.shuffle(sort)
     return pd.DataFrame(concatenation[sort]), pd.Series(labels[sort]), pd.Series(protected[sort]), pd.Series(protected[sort]).replace({True: 'Minority', False: 'Majority'})
 
-
-
 ### Modelling function
-def evaluate(y_true, groups, y_pred):
+def evaluate(y_true, groups, y_pred, p = 0.3):
     """
         Computes the different metrics of interest.
 
@@ -239,6 +239,8 @@ def evaluate(y_true, groups, y_pred):
     threshold_fpr = np.interp(0.9, tpr[tpr_sort], thresholds[tpr_sort])
     threshold_tpr = np.interp(0.1, fpr[fpr_sort], thresholds[fpr_sort])
 
+    threshold_top = pd.Series(y_pred).nlargest(int(len(y_pred) * p), keep = 'all').min()
+
     performance = {}
     for group in groups_unique:
         if group == 'Overall':
@@ -250,13 +252,17 @@ def evaluate(y_true, groups, y_pred):
 
         fpr, tpr, thresholds = roc_curve(y_true_group, y_pred_group)
         thres_order = np.argsort(thresholds)
+        selected = y_pred_group >= threshold_top
 
         performance[group] = pd.Series({
             "Brier Score": brier_score_loss(y_true_group, y_pred_group),
             "AUC": roc_auc_score(y_true_group, y_pred_group),
             
             "FPR @ 90% TPR": np.interp(threshold_fpr, thresholds[thres_order], fpr[thres_order]),
-            "TPR @ 10% FPR": np.interp(threshold_tpr, thresholds[thres_order], tpr[thres_order])
+            "TPR @ 10% FPR": np.interp(threshold_tpr, thresholds[thres_order], tpr[thres_order]),
+
+            "Wrongly prioritised": (1 - y_true_group[selected]).sum() / (1 - y_true_group).sum(),
+            "% of non-prioritized high-risk patients (FNR)": (y_true_group[~selected]).sum() / y_true_group.sum(),
         })
     return pd.DataFrame.from_dict(performance)
 
@@ -279,26 +285,39 @@ def impute_data(train_index, data, groups, strategy = 'Median', add_missing = Fa
     """
     index = data.loc[train_index].dropna().index if complete_case else train_index # For complete case analysis -- keep only index of complete case
     data = data.add_suffix('_data')
+    missing = data.isna()
 
     # Data to use to learn imputation
     train_data = data.loc[train_index]
+    imputed = data.copy()
 
-    if 'Group' in strategy:
-        if 'Mean' in strategy:
-            mean_group = train_data.groupby(groups.loc[train_index]).mean()
-            data = data.groupby(groups).transform(lambda x: x.fillna(mean_group.loc[groups.loc[x.index[0]]][x.name]))
+    if 'Hot Deck' in strategy:
+        imputer = KNNImputer(n_neighbors=1, weights="uniform")
+        if 'Group' in strategy:
+            for group in np.unique(groups):
+                train_group = train_data[groups.loc[train_index] == group]
+                imputer.fit(train_group)
+                imputed[groups == group] = imputer.transform(data[groups == group])
         else:
-            # Add group befoer splitting only for imputation
-            data = pd.concat([data, groups.rename('Group')], axis = 1)
-            train_data = data.loc[train_index]
+            imputer.fit(train_data)
+            imputed = pd.DataFrame(imputer.transform(data), index = data.index, columns = data.columns)
+        
+
+    if 'Mean' in strategy:
+        if 'Group' in strategy:
+            mean_group = train_data.groupby(groups.loc[train_index]).mean()
+            imputed = data.groupby(groups).transform(lambda x: x.fillna(mean_group.loc[groups.loc[x.index[0]]][x.name]))
+        imputed = imputed.fillna(train_data.mean())
 
     # MICE Algorithm
-    ## 1. Init with median imputation
-    imputed = pd.DataFrame(SimpleImputer(strategy = "mean").fit(train_data).transform(data), index = data.index, columns = data.columns)
-
+    ## 1. Init with mean imputation
     if 'MICE' in strategy:
-        missing = data.isna()
-
+        imputed = pd.DataFrame(SimpleImputer(strategy = "mean").fit(train_data).transform(data), index = data.index, columns = data.columns)
+        if "Group" in strategy:
+            data = pd.concat([data, groups.rename('Group')], axis = 1)
+            imputed = pd.concat([imputed, groups.rename('Group')], axis = 1)
+            train_data = data.loc[train_index]
+            
         ## 2. Iterate through columns
         ### Find columns with random values (start with the one with least)
         to_impute = missing.sum().sort_values()
@@ -323,7 +342,7 @@ def impute_data(train_index, data, groups, strategy = 'Median', add_missing = Fa
 
     if add_missing:
         # Add missing indicator
-        imputed = pd.concat([imputed, data.isna().add_suffix('_missing').astype(float)], axis = 1)
+        imputed = pd.concat([imputed, missing.add_suffix('_missing').astype(float)], axis = 1)
 
     if add_group:
         # Add group befoer splitting only for imputation
@@ -353,7 +372,7 @@ def train_test(data, labels, groups_bin, groups, n_imputation = 1, seed = 42, **
     for i in range(n_imputation):
         # Impute data
         imputed, train = impute_data(train, data, groups_bin, **args_imputation)
-        modelfit = LogisticRegression(random_state = i, penalty = 'none').fit(imputed.loc[train], labels.loc[train])
+        modelfit = LogisticRegression(random_state = i, penalty = None, max_iter = 1000).fit(imputed.loc[train], labels.loc[train])
         predictions.append(modelfit.predict_proba(imputed.loc[test])[:, 1])
         coefs.append(np.array([- modelfit.intercept_[0] / modelfit.coef_[0][1], - modelfit.coef_[0][0] / modelfit.coef_[0][1]]))
         mean_imputed.append(imputed)
@@ -397,7 +416,7 @@ def k_experiment(majority_size, ratio, class_balance, removal, k = 10, n_imputat
 
         performances[i], coefs, imputed = train_test(data_removed, labels, protected_binarized, protected, n_imputation, seed = i, **args_imputation)
 
-        error = (data - imputed.Mean.values[:,:2]).loc[:, 0]**2# Select dimension 0 as it is the one where we removed data
+        error = (data.iloc[:, 0] - imputed.Mean.values[:, 0])**2# Select dimension 0 as it is the one where we removed data
         error_min = error.loc[protected_binarized].loc[data_removed[protected_binarized].isna().values]
         error_maj = error.loc[~protected_binarized].loc[data_removed[~protected_binarized].isna().values]
         error_min = 0 if error_min.empty else error_min.mean()
@@ -408,15 +427,15 @@ def k_experiment(majority_size, ratio, class_balance, removal, k = 10, n_imputat
         delta_reconstruction["Majority"].append(error_maj)
         delta_reconstruction["Difference"].append(error_min - error_maj)
 
-        mean_observed["Overall"].append(data_removed.dropna().mean().loc[0])
-        mean_observed["Minority"].append(data_removed.loc[protected_binarized].dropna().mean().loc[0])
-        mean_observed["Majority"].append(data_removed.loc[~protected_binarized].dropna().mean().loc[0])
+        mean_observed["Overall"].append(data_removed.dropna().mean().iloc[0])
+        mean_observed["Minority"].append(data_removed.loc[protected_binarized].dropna().mean().iloc[0])
+        mean_observed["Majority"].append(data_removed.loc[~protected_binarized].dropna().mean().iloc[0])
 
-        obs_rate["Overall"].append(data_removed.isna().mean().loc[0])
-        obs_rate["Minority"].append(1 - data_removed.loc[protected_binarized].isna().mean().loc[0])
-        obs_rate["Majority"].append(1 - data_removed.loc[~protected_binarized].isna().mean().loc[0])
+        obs_rate["Overall"].append(data_removed.isna().mean().iloc[0])
+        obs_rate["Minority"].append(1 - data_removed.loc[protected_binarized].isna().mean().iloc[0])
+        obs_rate["Majority"].append(1 - data_removed.loc[~protected_binarized].isna().mean().iloc[0])
 
-        corr = pd.concat([data.loc[:, 0], ~data_removed.loc[:, 0].isna().astype(int)], axis = 1)
+        corr = pd.concat([data.iloc[:, 0], ~data_removed.iloc[:, 0].isna().astype(int)], axis = 1)
         corr_missingness["Overall"].append(corr.corr().min().values[0])
         corr_missingness["Minority"].append(corr.loc[protected_binarized].corr().min().values[0])
         corr_missingness["Majority"].append(corr.loc[~protected_binarized].corr().min().values[0])
